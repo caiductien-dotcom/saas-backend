@@ -22,6 +22,15 @@ const server = http.createServer((req, res) => {
         res.end();
         return;
     }
+    //http redirect
+    if (req.url === "/" && req.method === "GET") {
+        console.log("Đang chuyển hướng sang trang Login...");
+        res.writeHead(302, {
+            'Location': 'http://127.0.0.1:5500/login2.html' 
+        });
+        res.end();
+        return; 
+    }
 
     let body = "";
     req.on("data", chunk => {
