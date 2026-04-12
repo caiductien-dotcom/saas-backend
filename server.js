@@ -22,11 +22,12 @@ const server = http.createServer((req, res) => {
         res.end();
         return;
     }
+    
     //http redirect
     if (req.url === "/" && req.method === "GET") {
         console.log("Đang chuyển hướng sang trang Login...");
         res.writeHead(302, {
-            'Location': 'http://192.168.1.1:5500/sass-frontend/pages/login2.html'
+            'Location': 'http://localhost:5500/sass-frontend/pages/login2.html'
         });
         res.end();
         return; 
