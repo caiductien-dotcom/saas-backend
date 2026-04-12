@@ -26,7 +26,7 @@ const server = http.createServer((req, res) => {
     if (req.url === "/" && req.method === "GET") {
         console.log("Đang chuyển hướng sang trang Login...");
         res.writeHead(302, {
-            'Location': 'http://127.0.0.1:5500/login2.html' 
+            'Location': 'http://127.0.0.1:5500/sass-frontend/pages/login2.html'
         });
         res.end();
         return; 
