@@ -1,25 +1,58 @@
-const http = require("http");
-const fs = require("fs");
-const fsPromises = require("fs").promises;
-const path = require("path");
+const http = require("http"); // tao server web
+const fs = require("fs"); // doc ghi file
+const fsPromises = require("fs").promises; // dung cho Promise va Async/Await
+const path = require("path"); // xu ly duong dan
+//const auth = require("./js/auth")
 
-const Port = 3000;
-const USER_FILE = path.join(__dirname, "user.txt");
-const OTP_FILE = path.join(__dirname, "otp.txt");
+const Port = 3000; // cong
+const USER_FILE = path.join(__dirname, "user.txt"); // duong dan file user.txt
+const OTP_FILE = path.join(__dirname, "otp.txt"); // duong dan file luu mã OTP
 
+// Tao server
 const server = http.createServer((req, res) => {
-    // Setup CORS
+
+    // setup cors cho frontend goi vao
     res.setHeader("Access-Control-Allow-Origin", "*"); 
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+    // trinh duyet gui OPTIONS de kiem tra CORS
     if (req.method === "OPTIONS") {
         res.writeHead(200);
         res.end();
         return;
     }
+
+    if (!req.url.startsWith("/api")) {
+        let filePath = "";
+        
+        if (req.url === "/" || req.url === "/index.html") {
+            filePath = path.join(__dirname, "../sass-frontend/pages/login2.html");
+        } else {
+            // Tự động tìm file trong thư mục sass-frontend
+            filePath = path.join(__dirname, "../sass-frontend", req.url);
+        }
+
+        const extname = path.extname(filePath);
+        const contentType = {
+            ".html": "text/html",
+            ".js": "text/javascript",
+            ".css": "text/css",
+        }[extname] || "text/plain";
+
+        fs.readFile(filePath, (err, content) => {
+            if (err) {
+                res.writeHead(404);
+                res.end("Không tìm thấy file: " + req.url);
+            } else {
+                res.writeHead(200, { "Content-Type": contentType });
+                res.end(content);
+            }
+        });
+        return; // Thoát ra để không chạy xuống phần xử lý API
+    }
     
-    // Redirect về Frontend
+    //http redirect
     if (req.url === "/" && req.method === "GET") {
         console.log("Đang chuyển hướng sang trang Login...");
         res.writeHead(302, {
@@ -30,114 +63,93 @@ const server = http.createServer((req, res) => {
     }
 
     let body = "";
-    req.on("data", chunk => { body += chunk.toString(); });
+    req.on("data", chunk => {
+        body += chunk.toString(); // nhan du lieu tu client
+    });
 
+    // Cho req.on('end') thanh async de dung duoc await o duoi
     req.on("end", async () => { 
-        console.log("Đang gọi URL:", req.url, "| Phương thức:", req.method);
         console.log("Dữ liệu nhận được:", body);
-        const payload = body ? JSON.parse(body) : {};
+        const payload = body ? JSON.parse(body) : {}; // json -> object
 
-        // 1. API Đăng ký
+        //1. API dang ky
         if (req.url === "/api/signup" && req.method === "POST") {
             const { email, password } = payload;
-            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
-            const users = data.split("\n").filter(Boolean);
-            
-            if (users.some(u => u.split(",")[0] === email)) {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ success: false, message: "Email đã tồn tại" }));
-            } else {
-                await fsPromises.appendFile(USER_FILE, `${email},${password}\n`);
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ success: true, message: "Đăng ký thành công" }));
-            }
+            fs.readFile(USER_FILE, "utf-8", (err, data) => {
+                const users = (err || !data) ? [] : data.split("\n").filter(Boolean);
+                if (users.some(u => u.split(",")[0] === email)) {
+                    res.end(JSON.stringify({ success: false, message: "Email da ton tai" }));
+                } else {
+                    fs.appendFile(USER_FILE, `${email},${password}\n`, err => {
+                        res.end(JSON.stringify({ success: true, message: "Dang ky thanh cong" }));
+                    });
+                }
+            });
         } 
 
-        // 2. API Đăng nhập
+        //2. API dang nhap
         else if (req.url === "/api/login" && req.method === "POST") {
             const { email, password } = payload;
-            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
-            const users = data.split("\n").filter(Boolean);
-            const found = users.find(u => u === `${email},${password}`);
-            
-            res.writeHead(200, { "Content-Type": "application/json" });
-            if (found) {
-                res.end(JSON.stringify({ success: true, message: "Đăng nhập thành công" }));
-            } else {
-                res.end(JSON.stringify({ success: false, message: "Sai tài khoản hoặc mật khẩu" }));
-            }
+            fs.readFile(USER_FILE, "utf-8", (err, data) => {
+                const users = (err || !data) ? [] : data.split("\n").filter(Boolean);
+                // Tim user khop ca email va password
+                const found = users.find(u => u === `${email},${password}`);
+                if (found) {
+                    res.end(JSON.stringify({ success: true, message: "Dang nhap thanh cong" }));
+                } else {
+                    res.end(JSON.stringify({ success: false, message: "Sai tai khoan hoac mat khau" }));
+                }
+            });
         }
 
-        // 3. API Quên mật khẩu - Tạo mã
+        //3. API quen mk 
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
             const { email } = payload;
-            const otp = Math.floor(1000 + Math.random() * 9000).toString();
-            
-            console.log(`\n[DEV] EMAIL: ${email} | MÃ OTP CỦA ÔNG ĐÂY: ${otp}\n`);
-
-            await fsPromises.writeFile(OTP_FILE, `${email},${otp}`);
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ 
-                success: true, 
-                message: "Mã OTP của bạn là: " + otp
-            }));
+            const otp = Math.floor(1000 + Math.random() * 9000).toString(); // tao ma 4 so
+            // Dung fsPromises.writeFile tra ve promise
+            fsPromises.writeFile(OTP_FILE, `${email},${otp}`)
+                .then(() => {
+                    res.end(JSON.stringify({ success: true, message: "OTP da tao: " + otp }));
+                })
+                .catch(err => {
+                    res.end(JSON.stringify({ success: false, message: "Loi tao OTP" }));
+                });
         }
 
-        // 4. API Xác thực OTP
-        else if (req.url === "/api/verify-otp" && req.method === "POST") {
-            const { email, otp } = payload;
-            try {
-                const otpRaw = await fsPromises.readFile(OTP_FILE, "utf-8");
-                const [savedEmail, savedOtp] = otpRaw.split(",");
-
-                res.writeHead(200, { "Content-Type": "application/json" });
-                if (email === savedEmail && otp === savedOtp) {
-                    res.end(JSON.stringify({ success: true, message: "OTP chính xác!" }));
-                } else {
-                    res.end(JSON.stringify({ success: false, message: "Mã OTP không đúng" }));
-                }
-            } catch (err) {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ success: false, message: "OTP đã hết hạn hoặc chưa tạo" }));
-            }
-        }
-
-        // 5. API Đổi mật khẩu mới
+        //4.API Quen mk
         else if (req.url === "/api/reset-password" && req.method === "POST") {
             const { email, otp, newPassword } = payload;
-            try {
-                const otpRaw = await fsPromises.readFile(OTP_FILE, "utf-8");
-                const [savedEmail, savedOtp] = otpRaw.split(",");
 
-                res.writeHead(200, { "Content-Type": "application/json" });
-                if (email === savedEmail && otp === savedOtp) {
-                    const userData = await fsPromises.readFile(USER_FILE, "utf-8");
-                    let users = userData.split("\n").filter(Boolean);
-                    users = users.map(line => {
-                        const [e, p] = line.split(",");
-                        return e === email ? `${e},${newPassword}` : line;
-                    });
+            // Doc file OTP bang await
+            const otpRaw = await fsPromises.readFile(OTP_FILE, "utf-8");
+            const [savedEmail, savedOtp] = otpRaw.split(",");
 
-                    await fsPromises.writeFile(USER_FILE, users.join("\n") + "\n");
-                    await fsPromises.unlink(OTP_FILE).catch(() => {}); 
-                    res.end(JSON.stringify({ success: true, message: "Đổi mật khẩu thành công!" }));
-                } else {
-                    res.end(JSON.stringify({ success: false, message: "OTP không hợp lệ" }));
-                }
-            } catch (err) {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ success: false, message: "Lỗi hệ thống" }));
+            if (email === savedEmail && otp === savedOtp) {
+                // Neu OTP dung, tien hanh doc file user va cap nhat mat khau
+                const userData = await fsPromises.readFile(USER_FILE, "utf-8");
+                let users = userData.split("\n").filter(Boolean);
+
+                //  thay mat khau moi cho dung email
+                users = users.map(line => {
+                    const [e, p] = line.split(",");
+                    return e === email ? `${e},${newPassword}` : line;
+                });
+
+                // Ghi lai file user moi bang await
+                await fsPromises.writeFile(USER_FILE, users.join("\n") + "\n");
+                res.end(JSON.stringify({ success: true, message: "Doi mat khau moi thanh cong" }));
+            } else {
+                res.end(JSON.stringify({ success: false, message: "Ma OTP khong chinh xac" }));
             }
         }
-        
-        // 6. 404
+        // Tra ve 404 neu sai link
         else {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ success: false, message: "API không tồn tại!" }));
+            res.writeHead(404);
+            res.end(JSON.stringify({ success: false, message: "Sai URL" }));
         }
     });
 });
 
 server.listen(Port, () => {
-    console.log(`Server đang chạy tại http://localhost:${Port}`);
+    console.log(`Server dang chay tren cong http://localhost:${Port}\n`);
 });
