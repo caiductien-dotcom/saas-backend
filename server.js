@@ -71,15 +71,34 @@ const server = http.createServer((req, res) => {
 
         // 3. API quen mk
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
+            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
+            
+            // neu email chua dky thi khong the gui otp
+            if (!data.includes(`|${email}|`)) {
+                writeLog(`FORGOT_PASSWORD_FAILED: Email not found - ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "This email is not registered" }));
+            }
+
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            // Luu ma kem thoi han
             otpStorage.set(email, { code, expire: Date.now() + 5 * 60 * 1000 });
 
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
         }
 
-        // 4. API xac thuc otp
+        // 3.5 API gui lai otp
+        else if (req.url === "/api/resend-otp" && req.method === "POST") {
+            if (!email) return res.end(JSON.stringify({ success: false, message: "Email required" }));
+
+            const code = Math.floor(1000 + Math.random() * 9000).toString();
+            // gia han them 5 phut
+            otpStorage.set(email, { code, expire: Date.now() + 5 * 60 * 1000 });
+
+            writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
+            res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
+        }
+
+        // 4. api xac thuc otp
         else if (req.url === "/api/verify-otp" && req.method === "POST") {
             const record = otpStorage.get(email);
             
@@ -92,28 +111,31 @@ const server = http.createServer((req, res) => {
             }
         }
 
-        // 5. API doi mk
+        // 5. api doi mk moi
         else if (req.url === "/api/reset-password" && req.method === "POST") {
             const record = otpStorage.get(email);
-            if (record && record.code === otp) {
+            
+            // Chi cho phep doi mk neu OTP hop le va chua het han
+            if (record && record.code === otp && Date.now() < record.expire) {
                 const data = await fsPromises.readFile(USER_FILE, "utf-8");
-                const newHash = await bcrypt.hash(newPassword, 10); // ma hoa mk moi
+                const newHash = await bcrypt.hash(newPassword, 10);
 
                 const updatedData = data.split("\n").map(line => {
                     if (line.includes(`|${email}|`)) {
                         const parts = line.split("|");
-                        return `${parts[0]}|${email}|${newHash}`;
+                        return `${parts[0]}|${email}|${newHash}`; // giu nguyen id va email, chi thay hash 
                     }
                     return line;
-                }).join("\n");
+                }).filter(line => line.trim() !== "").join("\n") + "\n";
 
                 await fsPromises.writeFile(USER_FILE, updatedData);
-                otpStorage.delete(email); //xoa otp sau khi doi mk
+                otpStorage.delete(email); // doi xong thi xoa otp
+                
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
                 res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
-                writeLog(`PASSWORD_RESET_FAILED: Invalid request - ${email}`);
-                res.end(JSON.stringify({ success: false, message: "Invalid request" }));
+                writeLog(`PASSWORD_RESET_FAILED: Session invalid or expired - ${email}`);
+                res.end(JSON.stringify({ success: false, message: "Invalid session or OTP expired" }));
             }
         }
         
