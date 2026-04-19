@@ -13,8 +13,10 @@ const otpStorage = new Map();
 
 //ham ghi log vao file
 const writeLog = (msg) => {
-    const entry = `[${new Date().toLocaleString()}] ${msg}\n`;
+    const timestamp = new Date().toISOString();
+    const entry = `[${timestamp}] ${msg}\n`;
     fs.appendFileSync(LOG_FILE, entry);
+    console.log(`[LOG] ${msg}`); // In ra terminal de theo doi
 };
 
 const server = http.createServer((req, res) => {
@@ -37,7 +39,8 @@ const server = http.createServer((req, res) => {
             
             // kiem tra trung email
             if (data.includes(`|${email}|`)) {
-                return res.end(JSON.stringify({ success: false, message: "Email đã tồn tại" }));
+                writeLog(`SIGNUP_FAILED: Email already exists - ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "Email already exists" }));
             }
 
             const id = Date.now(); //tao id don gian 
@@ -45,7 +48,7 @@ const server = http.createServer((req, res) => {
             
             await fsPromises.appendFile(USER_FILE, `${id}|${email}|${hash}\n`);
             writeLog(`SIGNUP_SUCCESS: ${email}`);
-            res.end(JSON.stringify({ success: true, message: "Đăng ký thành công" }));
+            res.end(JSON.stringify({ success: true, message: "Signup successful" }));
         }
 
         // 2. API dang nhap
@@ -59,10 +62,11 @@ const server = http.createServer((req, res) => {
                 const isMatch = await bcrypt.compare(password, savedHash);
                 if (isMatch) {
                     writeLog(`LOGIN_SUCCESS: ${email}`);
-                    return res.end(JSON.stringify({ success: true, message: "Đăng nhập thành công" }));
+                    return res.end(JSON.stringify({ success: true, message: "Login successful" }));
                 }
             }
-            res.end(JSON.stringify({ success: false, message: "Sai tài khoản hoặc mật khẩu" }));
+            writeLog(`LOGIN_FAILED: Invalid credentials - ${email}`);
+            res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
         }
 
         // 3. API quen mk
@@ -71,8 +75,8 @@ const server = http.createServer((req, res) => {
             // Luu ma kem thoi han
             otpStorage.set(email, { code, expire: Date.now() + 5 * 60 * 1000 });
 
-            writeLog(`OTP_SEND: ${email} - CODE: ${code}`);
-            res.end(JSON.stringify({ success: true, message: "Mã OTP của bạn là: " + code }));
+            writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
+            res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
         }
 
         // 4. API xac thuc otp
@@ -80,9 +84,11 @@ const server = http.createServer((req, res) => {
             const record = otpStorage.get(email);
             
             if (record && record.code === otp && Date.now() < record.expire) {
-                res.end(JSON.stringify({ success: true, message: "OTP hợp lệ" }));
+                writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
+                res.end(JSON.stringify({ success: true, message: "OTP is valid" }));
             } else {
-                res.end(JSON.stringify({ success: false, message: "OTP sai hoặc đã hết hạn" }));
+                writeLog(`OTP_VERIFY_FAILED: Invalid or expired - ${email}`);
+                res.end(JSON.stringify({ success: false, message: "Invalid or expired OTP" }));
             }
         }
 
@@ -103,14 +109,16 @@ const server = http.createServer((req, res) => {
 
                 await fsPromises.writeFile(USER_FILE, updatedData);
                 otpStorage.delete(email); //xoa otp sau khi doi mk
-                writeLog(`RESET_PASS: ${email}`);
-                res.end(JSON.stringify({ success: true, message: "Đã đổi mật khẩu" }));
+                writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
+                res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
-                res.end(JSON.stringify({ success: false, message: "Yêu cầu không hợp lệ" }));
+                writeLog(`PASSWORD_RESET_FAILED: Invalid request - ${email}`);
+                res.end(JSON.stringify({ success: false, message: "Invalid request" }));
             }
         }
         
         else {
+            writeLog(`NOT_FOUND: ${req.url}`);
             res.writeHead(404);
             res.end(JSON.stringify({ success: false, message: "API Not Found" }));
         }
@@ -118,6 +126,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(Port, () => {
-    console.log(`Server BE đang chạy tại http://localhost:${Port}`);
-    writeLog("SERVER_START");
+    console.log(`Backend server is running at http://localhost:${Port}`);
+    writeLog("SERVER_STARTED");
 });
