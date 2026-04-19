@@ -1,155 +1,123 @@
-const http = require("http"); // tao server web
-const fs = require("fs"); // doc ghi file
-const fsPromises = require("fs").promises; // dung cho Promise va Async/Await
-const path = require("path"); // xu ly duong dan
-//const auth = require("./js/auth")
+const http = require("http");
+const fs = require("fs");
+const fsPromises = require("fs").promises;
+const path = require("path");
+const bcrypt = require("bcrypt"); // thu vien ma hoa mat khau
 
-const Port = 3000; // cong
-const USER_FILE = path.join(__dirname, "user.txt"); // duong dan file user.txt
-const OTP_FILE = path.join(__dirname, "otp.txt"); // duong dan file luu mã OTP
+const Port = 3000;
+const USER_FILE = path.join(__dirname, "user.txt");
+const LOG_FILE = path.join(__dirname, "server.log");
 
-// Tao server
+// Quan ly otp tren ram
+const otpStorage = new Map(); 
+
+//ham ghi log vao file
+const writeLog = (msg) => {
+    const entry = `[${new Date().toLocaleString()}] ${msg}\n`;
+    fs.appendFileSync(LOG_FILE, entry);
+};
+
 const server = http.createServer((req, res) => {
-
-    // setup cors cho frontend goi vao
-    res.setHeader("Access-Control-Allow-Origin", "*"); 
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    // Setup CORS 
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    // trinh duyet gui OPTIONS de kiem tra CORS
-    if (req.method === "OPTIONS") {
-        res.writeHead(200);
-        res.end();
-        return;
-    }
-
-    if (!req.url.startsWith("/api")) {
-        let filePath = "";
-        
-        if (req.url === "/" || req.url === "/index.html") {
-            filePath = path.join(__dirname, "../sass-frontend/pages/login2.html");
-        } else {
-            // Tự động tìm file trong thư mục sass-frontend
-            filePath = path.join(__dirname, "../sass-frontend", req.url);
-        }
-
-        const extname = path.extname(filePath);
-        const contentType = {
-            ".html": "text/html",
-            ".js": "text/javascript",
-            ".css": "text/css",
-        }[extname] || "text/plain";
-
-        fs.readFile(filePath, (err, content) => {
-            if (err) {
-                res.writeHead(404);
-                res.end("Không tìm thấy file: " + req.url);
-            } else {
-                res.writeHead(200, { "Content-Type": contentType });
-                res.end(content);
-            }
-        });
-        return; // Thoát ra để không chạy xuống phần xử lý API
-    }
-    
-    //http redirect
-    if (req.url === "/" && req.method === "GET") {
-        console.log("Đang chuyển hướng sang trang Login...");
-        res.writeHead(302, {
-            'Location': 'http://localhost:5500/sass-frontend/pages/login2.html'
-        });
-        res.end();
-        return; 
-    }
+    if (req.method === "OPTIONS") return res.end();
 
     let body = "";
-    req.on("data", chunk => {
-        body += chunk.toString(); // nhan du lieu tu client
-    });
+    req.on("data", chunk => { body += chunk.toString(); });
+    req.on("end", async () => {
+        const payload = body ? JSON.parse(body) : {};
+        const { email, password, otp, newPassword } = payload;
 
-    // Cho req.on('end') thanh async de dung duoc await o duoi
-    req.on("end", async () => { 
-        console.log("Dữ liệu nhận được:", body);
-        const payload = body ? JSON.parse(body) : {}; // json -> object
-
-        //1. API dang ky
+        // 1. api dang ky 
         if (req.url === "/api/signup" && req.method === "POST") {
-            const { email, password } = payload;
-            fs.readFile(USER_FILE, "utf-8", (err, data) => {
-                const users = (err || !data) ? [] : data.split("\n").filter(Boolean);
-                if (users.some(u => u.split(",")[0] === email)) {
-                    res.end(JSON.stringify({ success: false, message: "Email da ton tai" }));
-                } else {
-                    fs.appendFile(USER_FILE, `${email},${password}\n`, err => {
-                        res.end(JSON.stringify({ success: true, message: "Dang ky thanh cong" }));
-                    });
-                }
-            });
-        } 
+            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
+            
+            // kiem tra trung email
+            if (data.includes(`|${email}|`)) {
+                return res.end(JSON.stringify({ success: false, message: "Email đã tồn tại" }));
+            }
 
-        //2. API dang nhap
+            const id = Date.now(); //tao id don gian 
+            const hash = await bcrypt.hash(password, 10); // ma hoa mat khau
+            
+            await fsPromises.appendFile(USER_FILE, `${id}|${email}|${hash}\n`);
+            writeLog(`SIGNUP_SUCCESS: ${email}`);
+            res.end(JSON.stringify({ success: true, message: "Đăng ký thành công" }));
+        }
+
+        // 2. API dang nhap
         else if (req.url === "/api/login" && req.method === "POST") {
-            const { email, password } = payload;
-            fs.readFile(USER_FILE, "utf-8", (err, data) => {
-                const users = (err || !data) ? [] : data.split("\n").filter(Boolean);
-                // Tim user khop ca email va password
-                const found = users.find(u => u === `${email},${password}`);
-                if (found) {
-                    res.end(JSON.stringify({ success: true, message: "Dang nhap thanh cong" }));
-                } else {
-                    res.end(JSON.stringify({ success: false, message: "Sai tai khoan hoac mat khau" }));
+            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
+            const userLine = data.split("\n").find(line => line.includes(`|${email}|`));
+
+            if (userLine) {
+                const savedHash = userLine.split("|")[2].trim();
+                // so sanh mat khau tho voi hash
+                const isMatch = await bcrypt.compare(password, savedHash);
+                if (isMatch) {
+                    writeLog(`LOGIN_SUCCESS: ${email}`);
+                    return res.end(JSON.stringify({ success: true, message: "Đăng nhập thành công" }));
                 }
-            });
+            }
+            res.end(JSON.stringify({ success: false, message: "Sai tài khoản hoặc mật khẩu" }));
         }
 
-        //3. API quen mk 
+        // 3. API quen mk
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
-            const { email } = payload;
-            const otp = Math.floor(1000 + Math.random() * 9000).toString(); // tao ma 4 so
-            // Dung fsPromises.writeFile tra ve promise
-            fsPromises.writeFile(OTP_FILE, `${email},${otp}`)
-                .then(() => {
-                    res.end(JSON.stringify({ success: true, message: "OTP da tao: " + otp }));
-                })
-                .catch(err => {
-                    res.end(JSON.stringify({ success: false, message: "Loi tao OTP" }));
-                });
+            const code = Math.floor(1000 + Math.random() * 9000).toString();
+            // Luu ma kem thoi han
+            otpStorage.set(email, { code, expire: Date.now() + 5 * 60 * 1000 });
+
+            writeLog(`OTP_SEND: ${email} - CODE: ${code}`);
+            res.end(JSON.stringify({ success: true, message: "Mã OTP của bạn là: " + code }));
         }
 
-        //4.API Quen mk
-        else if (req.url === "/api/reset-password" && req.method === "POST") {
-            const { email, otp, newPassword } = payload;
-
-            // Doc file OTP bang await
-            const otpRaw = await fsPromises.readFile(OTP_FILE, "utf-8");
-            const [savedEmail, savedOtp] = otpRaw.split(",");
-
-            if (email === savedEmail && otp === savedOtp) {
-                // Neu OTP dung, tien hanh doc file user va cap nhat mat khau
-                const userData = await fsPromises.readFile(USER_FILE, "utf-8");
-                let users = userData.split("\n").filter(Boolean);
-
-                //  thay mat khau moi cho dung email
-                users = users.map(line => {
-                    const [e, p] = line.split(",");
-                    return e === email ? `${e},${newPassword}` : line;
-                });
-
-                // Ghi lai file user moi bang await
-                await fsPromises.writeFile(USER_FILE, users.join("\n") + "\n");
-                res.end(JSON.stringify({ success: true, message: "Doi mat khau moi thanh cong" }));
+        // 4. API xac thuc otp
+        else if (req.url === "/api/verify-otp" && req.method === "POST") {
+            const record = otpStorage.get(email);
+            
+            if (record && record.code === otp && Date.now() < record.expire) {
+                res.end(JSON.stringify({ success: true, message: "OTP hợp lệ" }));
             } else {
-                res.end(JSON.stringify({ success: false, message: "Ma OTP khong chinh xac" }));
+                res.end(JSON.stringify({ success: false, message: "OTP sai hoặc đã hết hạn" }));
             }
         }
-        // Tra ve 404 neu sai link
+
+        // 5. API doi mk
+        else if (req.url === "/api/reset-password" && req.method === "POST") {
+            const record = otpStorage.get(email);
+            if (record && record.code === otp) {
+                const data = await fsPromises.readFile(USER_FILE, "utf-8");
+                const newHash = await bcrypt.hash(newPassword, 10); // ma hoa mk moi
+
+                const updatedData = data.split("\n").map(line => {
+                    if (line.includes(`|${email}|`)) {
+                        const parts = line.split("|");
+                        return `${parts[0]}|${email}|${newHash}`;
+                    }
+                    return line;
+                }).join("\n");
+
+                await fsPromises.writeFile(USER_FILE, updatedData);
+                otpStorage.delete(email); //xoa otp sau khi doi mk
+                writeLog(`RESET_PASS: ${email}`);
+                res.end(JSON.stringify({ success: true, message: "Đã đổi mật khẩu" }));
+            } else {
+                res.end(JSON.stringify({ success: false, message: "Yêu cầu không hợp lệ" }));
+            }
+        }
+        
         else {
             res.writeHead(404);
-            res.end(JSON.stringify({ success: false, message: "Sai URL" }));
+            res.end(JSON.stringify({ success: false, message: "API Not Found" }));
         }
     });
 });
 
 server.listen(Port, () => {
-    console.log(`Server dang chay tren cong http://localhost:${Port}\n`);
+    console.log(`Server BE đang chạy tại http://localhost:${Port}`);
+    writeLog("SERVER_START");
 });
