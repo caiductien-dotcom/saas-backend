@@ -33,3 +33,4 @@
 [2026-04-19T14:57:33.872Z] PASSWORD_RESET_FAILED: Invalid request - haduyminh5a1@gmail.com
 [2026-04-19T14:57:38.747Z] NOT_FOUND: /api/resend-otp
 [2026-04-19T15:01:58.556Z] PASSWORD_RESET_FAILED: Invalid request - haduyminh5a1@gmail.com
+[2026-04-19T15:10:51.641Z] SERVER_STARTED
