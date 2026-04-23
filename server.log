@@ -60,3 +60,17 @@
 [2026-04-22T05:49:56.074Z] NOT_FOUND: /favicon.ico
 [2026-04-22T05:50:41.911Z] OTP_SENT: haduyminh5a1@gmail.com - CODE: 4139
 [2026-04-22T05:51:18.542Z] OTP_RESEND: haduyminh5a1@gmail.com - NEW_CODE: 1369
+[2026-04-23T14:09:34.343Z] SERVER_STARTED
+[2026-04-23T14:10:39.819Z] SERVER_STARTED
+[2026-04-23T14:10:57.714Z] NOT_FOUND: /
+[2026-04-23T14:10:57.908Z] NOT_FOUND: /favicon.ico
+[2026-04-23T14:13:12.049Z] SIGNUP_FAILED: Email already exists - haduyminh5a1@gmail.com
+[2026-04-23T14:13:12.051Z] SIGNUP_FAILED: Email already exists - haduyminh5a1@gmail.com
+[2026-04-23T14:14:33.173Z] SIGNUP_FAILED: Email already exists - haduyminh5a1@gmail.com
+[2026-04-23T14:15:24.523Z] LOGIN_FAILED: Invalid credentials - haduyminh5a1@gmail.com
+[2026-04-23T14:18:32.219Z] LOGIN_FAILED: Invalid credentials - haduyminh5a1@gmail.com
+[2026-04-23T14:20:07.506Z] OTP_SENT: haduyminh5a1@gmail.com - CODE: 1581
+[2026-04-23T14:20:39.728Z] PASSWORD_RESET_SUCCESS: haduyminh5a1@gmail.com
+[2026-04-23T14:20:49.448Z] LOGIN_SUCCESS: haduyminh5a1@gmail.com
+[2026-04-23T14:22:11.890Z] OTP_SENT: haduyminh5a1@gmail.com - CODE: 2651
+[2026-04-23T14:23:11.715Z] OTP_RESEND: haduyminh5a1@gmail.com - NEW_CODE: 3763
