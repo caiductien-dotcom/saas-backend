@@ -80,7 +80,7 @@ const server = http.createServer((req, res) => {
             }
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            otpStorage.set(email, { code, expire: Date.now() + 5 * 60 * 1000 });
+            otpStorage.set(email, { code, expire: Date.now() + 10 * 1000 });
 
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
@@ -92,7 +92,7 @@ const server = http.createServer((req, res) => {
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
             // gia han them 5 phut
-            otpStorage.set(email, { code, expire: Date.now() + 10 * 1000 });
+            otpStorage.set(email, { code, expire: Date.now() + 5* 60 * 1000 });
 
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
