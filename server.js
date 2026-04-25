@@ -150,4 +150,4 @@ const server = http.createServer((req, res) => {
 server.listen(Port, () => {
     console.log(`Backend server is running at http://localhost:${Port}`);
     writeLog("SERVER_STARTED");
-});
+}); 
