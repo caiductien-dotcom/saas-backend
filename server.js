@@ -135,6 +135,13 @@ const server = http.createServer((req, res) => {
                     return res.end(JSON.stringify({ success: true, message: "Login successful" }));
                 }
             }
+            if (isMatch) {
+                return res.end(JSON.stringify({ 
+                    success: true, 
+                    token: parts[0], 
+                    redirect: "https://caiductien-dotcom.github.io/WEB-BASED-BATTLESHIP-GAME/" 
+                }));
+            }
             writeLog(`LOGIN_FAILED: Invalid credentials - ${email}`);
             res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
         }
@@ -149,7 +156,7 @@ const server = http.createServer((req, res) => {
             }
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            otpStorage.set(email, { code, expire: Date.now() + 10 * 1000 });
+            otpStorage.set(email, { code, expire: Date.now() + 60 * 1000 });
 
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
@@ -160,7 +167,7 @@ const server = http.createServer((req, res) => {
             if (!email) return res.end(JSON.stringify({ success: false, message: "Email required" }));
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            otpStorage.set(email, { code, expire: Date.now() + 10 * 1000 });
+            otpStorage.set(email, { code, expire: Date.now() + 60 * 1000 });
 
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
@@ -195,8 +202,8 @@ const server = http.createServer((req, res) => {
         // 5. API doi mk
         else if (req.url === "/api/reset-password" && req.method === "POST") {
             const record = otpStorage.get(email);
-
-            if (record && record.code === otp && Date.now() < record.expire) {
+            const now = Date.now();
+            if (record && record.code === String(otp) && now < record.expire) {
                 const { content, sha } = await readUsersFromGitHub();
                 const newHash = await bcrypt.hash(newPassword, 10);
 
