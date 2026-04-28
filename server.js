@@ -1,26 +1,97 @@
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
-const fsPromises = require("fs").promises;
-const path = require("path");
-const bcrypt = require("bcrypt"); // thu vien ma hoa mat khau
+const bcrypt = require("bcrypt");
 
 const Port = 3000;
-const USER_FILE = path.join(__dirname, "user.txt");
-const LOG_FILE = path.join(__dirname, "server.log");
 
-// Quan ly otp tren ram
-const otpStorage = new Map(); 
+//github 
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_OWNER = "caiductien-dotcom";
+const GITHUB_REPO = "saas-backend";
+const GITHUB_FILE = "user.txt";
+const GITHUB_BRANCH = "main";
 
-//ham ghi log vao file
+const LOG_FILE = "server.log";
+const otpStorage = new Map();
+
 const writeLog = (msg) => {
     const timestamp = new Date().toISOString();
     const entry = `[${timestamp}] ${msg}\n`;
     fs.appendFileSync(LOG_FILE, entry);
-    console.log(`[LOG] ${msg}`); // In ra terminal de theo doi
+    console.log(`[LOG] ${msg}`);
+};
+
+// doc user.txt tu github
+const readUsersFromGitHub = () => {
+    return new Promise((resolve, reject) => {
+        const options = {
+            hostname: "api.github.com",
+            path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}?ref=${GITHUB_BRANCH}`,
+            method: "GET",
+            headers: {
+                "Authorization": `token ${GITHUB_TOKEN}`,
+                "User-Agent": "saas-backend",
+                "Accept": "application/vnd.github.v3+json"
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let data = "";
+            res.on("data", chunk => data += chunk);
+            res.on("end", () => {
+                const json = JSON.parse(data);
+                if (json.content) {
+                    const content = Buffer.from(json.content, "base64").toString("utf-8");
+                    resolve({ content, sha: json.sha });
+                } else {
+                    // File chua ton tai
+                    resolve({ content: "", sha: null });
+                }
+            });
+        });
+
+        req.on("error", reject);
+        req.end();
+    });
+};
+
+// ghi user.txt len github
+const writeUsersToGitHub = (content, sha) => {
+    return new Promise((resolve, reject) => {
+        const body = JSON.stringify({
+            message: "update user data",
+            content: Buffer.from(content).toString("base64"),
+            branch: GITHUB_BRANCH,
+            ...(sha && { sha })
+        });
+
+        const options = {
+            hostname: "api.github.com",
+            path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`,
+            method: "PUT",
+            headers: {
+                "Authorization": `token ${GITHUB_TOKEN}`,
+                "User-Agent": "saas-backend",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(body)
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let data = "";
+            res.on("data", chunk => data += chunk);
+            res.on("end", () => resolve(JSON.parse(data)));
+        });
+
+        req.on("error", reject);
+        req.write(body);
+        req.end();
+    });
 };
 
 const server = http.createServer((req, res) => {
-    // Setup CORS 
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -33,32 +104,31 @@ const server = http.createServer((req, res) => {
         const payload = body ? JSON.parse(body) : {};
         const { email, password, otp, newPassword } = payload;
 
-        // 1. api dang ky 
+        // 1. API dang ky
         if (req.url === "/api/signup" && req.method === "POST") {
-            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
-            
-            // kiem tra trung email
-            if (data.includes(`|${email}|`)) {
+            const { content, sha } = await readUsersFromGitHub();
+
+            if (content.includes(`|${email}|`)) {
                 writeLog(`SIGNUP_FAILED: Email already exists - ${email}`);
                 return res.end(JSON.stringify({ success: false, message: "Email already exists" }));
             }
 
-            const id = Date.now(); //tao id don gian 
-            const hash = await bcrypt.hash(password, 10); // ma hoa mat khau
-            
-            await fsPromises.appendFile(USER_FILE, `${id}|${email}|${hash}\n`);
+            const id = Date.now();
+            const hash = await bcrypt.hash(password, 10);
+            const newContent = content + `${id}|${email}|${hash}\n`;
+
+            await writeUsersToGitHub(newContent, sha);
             writeLog(`SIGNUP_SUCCESS: ${email}`);
             res.end(JSON.stringify({ success: true, message: "Signup successful" }));
         }
 
         // 2. API dang nhap
         else if (req.url === "/api/login" && req.method === "POST") {
-            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
-            const userLine = data.split("\n").find(line => line.includes(`|${email}|`));
+            const { content } = await readUsersFromGitHub();
+            const userLine = content.split("\n").find(line => line.includes(`|${email}|`));
 
             if (userLine) {
                 const savedHash = userLine.split("|")[2].trim();
-                // so sanh mat khau tho voi hash
                 const isMatch = await bcrypt.compare(password, savedHash);
                 if (isMatch) {
                     writeLog(`LOGIN_SUCCESS: ${email}`);
@@ -71,10 +141,9 @@ const server = http.createServer((req, res) => {
 
         // 3. API quen mk
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
-            const data = await fsPromises.readFile(USER_FILE, "utf-8").catch(() => "");
-            
-            // neu email chua dky thi khong the gui otp
-            if (!data.includes(`|${email}|`)) {
+            const { content } = await readUsersFromGitHub();
+
+            if (!content.includes(`|${email}|`)) {
                 writeLog(`FORGOT_PASSWORD_FAILED: Email not found - ${email}`);
                 return res.end(JSON.stringify({ success: false, message: "This email is not registered" }));
             }
@@ -86,22 +155,21 @@ const server = http.createServer((req, res) => {
             res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
         }
 
-        // 3.5 API gui lai otp
+        // 3.5 api resend otp
         else if (req.url === "/api/resend-otp" && req.method === "POST") {
             if (!email) return res.end(JSON.stringify({ success: false, message: "Email required" }));
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            // gia han them 5 phut
             otpStorage.set(email, { code, expire: Date.now() + 10 * 1000 });
 
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
         }
 
-        // 4. api xac thuc otp
+        // 4. API xac thuc otp
         else if (req.url === "/api/verify-otp" && req.method === "POST") {
             const record = otpStorage.get(email);
-            
+
             if (record && record.code === otp && Date.now() < record.expire) {
                 writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
                 res.end(JSON.stringify({ success: true, message: "OTP is valid" }));
@@ -111,26 +179,25 @@ const server = http.createServer((req, res) => {
             }
         }
 
-        // 5. api doi mk moi
+        // 5. API doi mk
         else if (req.url === "/api/reset-password" && req.method === "POST") {
             const record = otpStorage.get(email);
-            
-            // Chi cho phep doi mk neu OTP hop le va chua het han
+
             if (record && record.code === otp && Date.now() < record.expire) {
-                const data = await fsPromises.readFile(USER_FILE, "utf-8");
+                const { content, sha } = await readUsersFromGitHub();
                 const newHash = await bcrypt.hash(newPassword, 10);
 
-                const updatedData = data.split("\n").map(line => {
+                const updatedContent = content.split("\n").map(line => {
                     if (line.includes(`|${email}|`)) {
                         const parts = line.split("|");
-                        return `${parts[0]}|${email}|${newHash}`; // giu nguyen id va email, chi thay hash 
+                        return `${parts[0]}|${email}|${newHash}`;
                     }
                     return line;
                 }).filter(line => line.trim() !== "").join("\n") + "\n";
 
-                await fsPromises.writeFile(USER_FILE, updatedData);
-                otpStorage.delete(email); // doi xong thi xoa otp
-                
+                await writeUsersToGitHub(updatedContent, sha);
+                otpStorage.delete(email);
+
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
                 res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
@@ -138,7 +205,7 @@ const server = http.createServer((req, res) => {
                 res.end(JSON.stringify({ success: false, message: "Invalid session or OTP expired" }));
             }
         }
-        
+
         else {
             writeLog(`NOT_FOUND: ${req.url}`);
             res.writeHead(404);
@@ -150,4 +217,4 @@ const server = http.createServer((req, res) => {
 server.listen(Port, () => {
     console.log(`Backend server is running at http://localhost:${Port}`);
     writeLog("SERVER_STARTED");
-}); 
+});
