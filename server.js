@@ -175,19 +175,19 @@ const server = http.createServer((req, res) => {
                 return res.end(JSON.stringify({ success: false, message: "No OTP found. Please request a new one." }));
             }
 
-            if (record.code !== otp) {
-                // sai ma:tra ve loi de user sua
-                writeLog(`OTP_WRONG: ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "Incorrect OTP. Please check and try again." }));
-            }
-
+            // kiem tra het han truoc
             if (now > record.expire) {
-                // het han:thong bao user de bam nut resend
                 writeLog(`OTP_EXPIRED: ${email}`);
                 return res.end(JSON.stringify({ success: false, message: "OTP expired. Please click Resend." }));
             }
 
-            // ĐÚNG MÃ VÀ CÒN HẠN
+            // kiem tra nguoi dung nhap dung hay sai
+            if (record.code !== otp) {
+                writeLog(`OTP_WRONG: ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "Incorrect OTP. Please check and try again." }));
+            }
+
+            //neu dung ma va con han
             writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
             res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
         }
