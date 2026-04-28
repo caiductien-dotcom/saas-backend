@@ -169,14 +169,27 @@ const server = http.createServer((req, res) => {
         // 4. API xac thuc otp
         else if (req.url === "/api/verify-otp" && req.method === "POST") {
             const record = otpStorage.get(email);
-
-            if (record && record.code === otp && Date.now() < record.expire) {
-                writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
-                res.end(JSON.stringify({ success: true, message: "OTP is valid" }));
-            } else {
-                writeLog(`OTP_VERIFY_FAILED: Invalid or expired - ${email}`);
-                res.end(JSON.stringify({ success: false, message: "Invalid or expired OTP" }));
+            const now = Date.now();
+            
+            if (!record) {
+                return res.end(JSON.stringify({ success: false, message: "No OTP found. Please request a new one." }));
             }
+
+            if (record.code !== otp) {
+                // sai ma:tra ve loi de user sua
+                writeLog(`OTP_WRONG: ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "Incorrect OTP. Please check and try again." }));
+            }
+
+            if (now > record.expire) {
+                // het han:thong bao user de bam nut resend
+                writeLog(`OTP_EXPIRED: ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "OTP expired. Please click Resend." }));
+            }
+
+            // ĐÚNG MÃ VÀ CÒN HẠN
+            writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
+            res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
         }
 
         // 5. API doi mk
