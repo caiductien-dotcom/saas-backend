@@ -3,7 +3,7 @@ const https = require("https");
 const fs = require("fs");
 const bcrypt = require("bcrypt");
 
-const Port = 3000;
+const Port = process.env.PORT || 3000;
 
 //github 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
