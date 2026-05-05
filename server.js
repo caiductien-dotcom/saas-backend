@@ -128,19 +128,19 @@ const server = http.createServer((req, res) => {
             const userLine = content.split("\n").find(line => line.includes(`|${email}|`));
 
             if (userLine) {
-                const savedHash = userLine.split("|")[2].trim();
+                const parts = userLine.split("|"); //cat chuoi lay id lam token
+                const savedHash = parts[2].trim();
                 const isMatch = await bcrypt.compare(password, savedHash);
+                
                 if (isMatch) {
                     writeLog(`LOGIN_SUCCESS: ${email}`);
-                    return res.end(JSON.stringify({ success: true, message: "Login successful" }));
+                    return res.end(JSON.stringify({ 
+                        success: true, 
+                        message: "Login successful",
+                        token: parts[0], // gui token
+                        redirect: "https://caiductien-dotcom.github.io/WEB-BASED-BATTLESHIP-GAME/" 
+                    }));
                 }
-            }
-            if (isMatch) {
-                return res.end(JSON.stringify({ 
-                    success: true, 
-                    token: parts[0], 
-                    redirect: "https://caiductien-dotcom.github.io/WEB-BASED-BATTLESHIP-GAME/" 
-                }));
             }
             writeLog(`LOGIN_FAILED: Invalid credentials - ${email}`);
             res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
