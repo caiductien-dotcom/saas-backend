@@ -1,19 +1,27 @@
+//đọc biến từ môi trg file env
+require('dotenv').config();
 const http = require("http");
-const https = require("https");
-const fs = require("fs");
+const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const fs = require("fs");
 
 const Port = process.env.PORT || 3000;
-
-//github 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER = "caiductien-dotcom";
-const GITHUB_REPO = "saas-backend";
-const GITHUB_FILE = "user.txt";
-const GITHUB_BRANCH = "main";
-
 const LOG_FILE = "server.log";
-const otpStorage = new Map();
+
+// ket noi MongoDB Atlas
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log(" DATABASE Hoạt động!"))
+    .catch(err => console.error("Lỗi kết nối:", err));
+
+// cấu trúc document user trong database
+const userSchema = new mongoose.Schema({
+    email:    { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    score:    { type: Number, default: 0 },
+    otp:      { code: String, expire: Date }
+});
+const User = mongoose.model('User', userSchema);
 
 const writeLog = (msg) => {
     const timestamp = new Date().toISOString();
@@ -22,81 +30,13 @@ const writeLog = (msg) => {
     console.log(`[LOG] ${msg}`);
 };
 
-// doc user.txt tu github
-const readUsersFromGitHub = () => {
-    return new Promise((resolve, reject) => {
-        const options = {
-            hostname: "api.github.com",
-            path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}?ref=${GITHUB_BRANCH}`,
-            method: "GET",
-            headers: {
-                "Authorization": `token ${GITHUB_TOKEN}`,
-                "User-Agent": "saas-backend",
-                "Accept": "application/vnd.github.v3+json"
-            }
-        };
-
-        const req = https.request(options, (res) => {
-            let data = "";
-            res.on("data", chunk => data += chunk);
-            res.on("end", () => {
-                const json = JSON.parse(data);
-                if (json.content) {
-                    const content = Buffer.from(json.content, "base64").toString("utf-8");
-                    resolve({ content, sha: json.sha });
-                } else {
-                    // File chua ton tai
-                    resolve({ content: "", sha: null });
-                }
-            });
-        });
-
-        req.on("error", reject);
-        req.end();
-    });
-};
-
-// ghi user.txt len github
-const writeUsersToGitHub = (content, sha) => {
-    return new Promise((resolve, reject) => {
-        const body = JSON.stringify({
-            message: "update user data",
-            content: Buffer.from(content).toString("base64"),
-            branch: GITHUB_BRANCH,
-            ...(sha && { sha })
-        });
-
-        const options = {
-            hostname: "api.github.com",
-            path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`,
-            method: "PUT",
-            headers: {
-                "Authorization": `token ${GITHUB_TOKEN}`,
-                "User-Agent": "saas-backend",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(body)
-            }
-        };
-
-        const req = https.request(options, (res) => {
-            let data = "";
-            res.on("data", chunk => data += chunk);
-            res.on("end", () => resolve(JSON.parse(data)));
-        });
-
-        req.on("error", reject);
-        req.write(body);
-        req.end();
-    });
-};
-
 const server = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    if (req.method === "OPTIONS") return res.end();
+    if (req.method === "OPTIONS") 
+        return res.end();
 
     let body = "";
     req.on("data", chunk => { body += chunk.toString(); });
@@ -104,137 +44,113 @@ const server = http.createServer((req, res) => {
         const payload = body ? JSON.parse(body) : {};
         const { email, password, otp, newPassword } = payload;
 
-        // 1. API dang ky
+        // 1.dang ki
         if (req.url === "/api/signup" && req.method === "POST") {
-            const { content, sha } = await readUsersFromGitHub();
-
-            if (content.includes(`|${email}|`)) {
+            // tim email trong db
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
                 writeLog(`SIGNUP_FAILED: Email already exists - ${email}`);
                 return res.end(JSON.stringify({ success: false, message: "Email already exists" }));
             }
 
-            const id = Date.now();
             const hash = await bcrypt.hash(password, 10);
-            const newContent = content + `${id}|${email}|${hash}\n`;
+            // luu user moi vao db
+            await new User({ email, password: hash }).save();
 
-            await writeUsersToGitHub(newContent, sha);
             writeLog(`SIGNUP_SUCCESS: ${email}`);
             res.end(JSON.stringify({ success: true, message: "Signup successful" }));
         }
 
-        // 2. API dang nhap
+        // 2.dang nhap
         else if (req.url === "/api/login" && req.method === "POST") {
-            const { content } = await readUsersFromGitHub();
-            const userLine = content.split("\n").find(line => line.includes(`|${email}|`));
-
-            if (userLine) {
-                const parts = userLine.split("|"); //cat chuoi lay id lam token
-                const savedHash = parts[2].trim();
-                const isMatch = await bcrypt.compare(password, savedHash);
-                
+            // tim user trong db
+            const user = await User.findOne({ email });
+            if (user) {
+                const isMatch = await bcrypt.compare(password, user.password);
+                //dung de tao jwt sau khi user dang nhap dung mk
                 if (isMatch) {
+                    // Dung id MongoDB lam payload JWT
+                    //tao jwt token bang thu vien auth0
+                    const token = jwt.sign({ id: user._id }, 
+                        process.env.JWT_SECRET, 
+                        { expiresIn: '24h' });
                     writeLog(`LOGIN_SUCCESS: ${email}`);
                     return res.end(JSON.stringify({ 
                         success: true, 
-                        message: "Login successful",
-                        token: parts[0], // gui token
+                        token, 
                         redirect: "https://caiductien-dotcom.github.io/WEB-BASED-BATTLESHIP-GAME/" 
                     }));
                 }
             }
-            writeLog(`LOGIN_FAILED: Invalid credentials - ${email}`);
+            writeLog(`LOGIN_FAILED: ${email}`);
             res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
         }
 
-        // 3. API quen mk
+        // 3.quen mk
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
-            const { content } = await readUsersFromGitHub();
-
-            if (!content.includes(`|${email}|`)) {
-                writeLog(`FORGOT_PASSWORD_FAILED: Email not found - ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "This email is not registered" }));
-            }
+            const user = await User.findOne({ email });
+            if (!user) return res.end(JSON.stringify({ success: false, message: "Email not found" }));
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            otpStorage.set(email, { code, expire: Date.now() + 60 * 1000 });
+            // Luu OTP vào document user trong DB
+            user.otp = { code, expire: Date.now() + 60 * 1000 };
+            await user.save();
 
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
         }
 
-        // 3.5 api resend otp
+        // 3.5 gui lai otp
         else if (req.url === "/api/resend-otp" && req.method === "POST") {
-            if (!email) return res.end(JSON.stringify({ success: false, message: "Email required" }));
+            const user = await User.findOne({ email });
+            if (!user) 
+                return res.end(JSON.stringify({ success: false, message: "User not found" }));
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
-            otpStorage.set(email, { code, expire: Date.now() + 60 * 1000 });
+            //ghi de otp moi vao db
+            user.otp = { code, expire: Date.now() + 60 * 1000 };
+            await user.save();
 
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
             res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
         }
 
-        // 4. API xac thuc otp
+        // 4.xac thuc otp
         else if (req.url === "/api/verify-otp" && req.method === "POST") {
-            const record = otpStorage.get(email);
-            const now = Date.now();
-            
-            if (!record) {
-                return res.end(JSON.stringify({ success: false, message: "No OTP found. Please request a new one." }));
+            // lay user tu db de doc otp da luu
+            const user = await User.findOne({ email });
+            if (!user || !user.otp || user.otp.code !== otp || Date.now() > user.otp.expire) {
+                writeLog(`OTP_VERIFY_FAILED: ${email}`);
+                return res.end(JSON.stringify({ success: false, message: "Invalid or expired OTP" }));
             }
 
-            // kiem tra het han truoc
-            if (now > record.expire) {
-                writeLog(`OTP_EXPIRED: ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "OTP expired. Please click Resend." }));
-            }
-
-            // kiem tra nguoi dung nhap dung hay sai
-            if (record.code !== otp) {
-                writeLog(`OTP_WRONG: ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "Incorrect OTP. Please check and try again." }));
-            }
-
-            //neu dung ma va con han
             writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
             res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
         }
 
-        // 5. API doi mk
+        // 5.doi mk
         else if (req.url === "/api/reset-password" && req.method === "POST") {
-            const record = otpStorage.get(email);
-            const now = Date.now();
-            if (record && record.code === String(otp) && now < record.expire) {
-                const { content, sha } = await readUsersFromGitHub();
-                const newHash = await bcrypt.hash(newPassword, 10);
-
-                const updatedContent = content.split("\n").map(line => {
-                    if (line.includes(`|${email}|`)) {
-                        const parts = line.split("|");
-                        return `${parts[0]}|${email}|${newHash}`;
-                    }
-                    return line;
-                }).filter(line => line.trim() !== "").join("\n") + "\n";
-
-                await writeUsersToGitHub(updatedContent, sha);
-                otpStorage.delete(email);
+            // doi pass(tim trong email)
+            const user = await User.findOne({ email });
+            if (user && user.otp && user.otp.code === String(otp) && Date.now() < user.otp.expire) {
+                user.password = await bcrypt.hash(newPassword, 10);
+                user.otp = undefined; // xoa otp khi dung xong
+                await user.save();
 
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
                 res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
-                writeLog(`PASSWORD_RESET_FAILED: Session invalid or expired - ${email}`);
-                res.end(JSON.stringify({ success: false, message: "Invalid session or OTP expired" }));
+                res.end(JSON.stringify({ success: false, message: "Session invalid or expired" }));
             }
         }
 
         else {
-            writeLog(`NOT_FOUND: ${req.url}`);
             res.writeHead(404);
-            res.end(JSON.stringify({ success: false, message: "API Not Found" }));
+            res.end(JSON.stringify({ success: false, message: "Not Found" }));
         }
     });
 });
-
 server.listen(Port, () => {
-    console.log(`Backend server is running at https://saas-backend-0ynu.onrender.com`);
+    console.log(` Server đang chạy tại cổng ${Port}`);
     writeLog("SERVER_STARTED");
 });
