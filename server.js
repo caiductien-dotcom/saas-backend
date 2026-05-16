@@ -41,7 +41,14 @@ const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", chunk => { body += chunk.toString(); });
     req.on("end", async () => {
-        const payload = body ? JSON.parse(body) : {};
+        // JSON.parse có thể throw SyntaxError nên bắt buộc dùng try/catch ở đây
+        let payload = {};
+        try {
+            payload = body ? JSON.parse(body) : {};
+        } catch (e) {
+            res.writeHead(400);
+            return res.end(JSON.stringify({ success: false, message: "Invalid request body" }));
+        }
         const { email, password, otp, newPassword } = payload;
 
         // 1.dang ki
@@ -58,7 +65,7 @@ const server = http.createServer((req, res) => {
             await new User({ email, password: hash }).save();
 
             writeLog(`SIGNUP_SUCCESS: ${email}`);
-            res.end(JSON.stringify({ success: true, message: "Signup successful" }));
+            return res.end(JSON.stringify({ success: true, message: "Signup successful" }));
         }
 
         // 2.dang nhap
@@ -75,15 +82,17 @@ const server = http.createServer((req, res) => {
                         process.env.JWT_SECRET, 
                         { expiresIn: '24h' });
                     writeLog(`LOGIN_SUCCESS: ${email}`);
+                    // them "return" de tranh gui response 2 lan, them "message" de frontend khong bi undefined
                     return res.end(JSON.stringify({ 
-                        success: true, 
+                        success: true,
+                        message: "Login successful",
                         token, 
                         redirect: "https://caiductien-dotcom.github.io/WEB-BASED-BATTLESHIP-GAME/" 
                     }));
                 }
             }
             writeLog(`LOGIN_FAILED: ${email}`);
-            res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
+            return res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
         }
 
         // 3.quen mk
@@ -93,11 +102,11 @@ const server = http.createServer((req, res) => {
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
             // Luu OTP vào document user trong DB
-            user.otp = { code, expire: Date.now() + 60 * 1000 };
+            user.otp = { code, expire: new Date(Date.now() + 60 * 1000) };
             await user.save();
 
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
-            res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
+            return res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
         }
 
         // 3.5 gui lai otp
@@ -108,11 +117,11 @@ const server = http.createServer((req, res) => {
 
             const code = Math.floor(1000 + Math.random() * 9000).toString();
             //ghi de otp moi vao db
-            user.otp = { code, expire: Date.now() + 60 * 1000 };
+            user.otp = { code, expire: new Date(Date.now() + 60 * 1000) };
             await user.save();
 
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
-            res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
+            return res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
         }
 
         // 4.xac thuc otp
@@ -125,7 +134,7 @@ const server = http.createServer((req, res) => {
             }
 
             writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
-            res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
+            return res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
         }
 
         // 5.doi mk
@@ -138,15 +147,15 @@ const server = http.createServer((req, res) => {
                 await user.save();
 
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
-                res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
+                return res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
-                res.end(JSON.stringify({ success: false, message: "Session invalid or expired" }));
+                return res.end(JSON.stringify({ success: false, message: "Session invalid or expired" }));
             }
         }
 
         else {
             res.writeHead(404);
-            res.end(JSON.stringify({ success: false, message: "Not Found" }));
+            return res.end(JSON.stringify({ success: false, message: "Not Found" }));
         }
     });
 });
