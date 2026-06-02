@@ -28,7 +28,7 @@ const writeLog = (msg) => {
     const entry = `[${timestamp}] ${msg}\n`;
     fs.appendFileSync(LOG_FILE, entry);
     console.log(`[LOG] ${msg}`);
-};
+};f
 
 const server = http.createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -149,7 +149,7 @@ const server = http.createServer((req, res) => {
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
                 return res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
             } else {
-                return res.end(JSON.stringify({ success: false, message: "Session invalid or expired" }));
+                return res.end(JSON.stringify({ success: false, message: "OTP invalid or expired" }));
             }
         }
 
