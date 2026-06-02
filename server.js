@@ -6,6 +6,8 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
 
+const SECRET_KEY = process.env.JWT_SECRET || "36RAUMATHANHOA";
+
 const Port = process.env.PORT || 3000;
 const LOG_FILE = "server.log";
 
@@ -22,6 +24,43 @@ const userSchema = new mongoose.Schema({
     otp:      { code: String, expire: Date }
 });
 const User = mongoose.model('User', userSchema);
+
+function authMiddleware(req, res) {
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+
+        res.writeHead(401);
+
+        res.end(JSON.stringify({
+            success: false,
+            message: "No token provided"
+        }));
+
+        return null;
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    try {
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        return decoded;
+
+    } catch (err) {
+
+        res.writeHead(401);
+
+        res.end(JSON.stringify({
+            success: false,
+            message: "Token expired or invalid"
+        }));
+
+        return null;
+    }
+}
 
 const writeLog = (msg) => {
     const timestamp = new Date().toISOString();
