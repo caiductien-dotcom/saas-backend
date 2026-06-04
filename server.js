@@ -13,8 +13,6 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log(" DATABASE Hoat dong!"))
     .catch(err => console.error("Loi ket noi:", err));
 
-// ==================== SCHEMAS ====================
-
 const userSchema = new mongoose.Schema({
     name:     { type: String, required: true },
     email:    { type: String, required: true, unique: true },
@@ -33,24 +31,25 @@ const matchSchema = new mongoose.Schema({
     playedAt: { type: Date, default: Date.now }
 });
 const Match = mongoose.model('Match', matchSchema);
+function sendJSON(res, statusCode, data) {
+    res.writeHead(statusCode, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(data));
+}
 
 function authMiddleware(req, res) {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: false, message: "No token provided" }));
+        sendJSON(res, 401, { success: false, message: "No token provided" });
         return null;
     }
 
     const token = authHeader.split(" ")[1];
 
     try {
-        const decoded = jwt.verify(token, SECRET_KEY);
-        return decoded;
+        return jwt.verify(token, SECRET_KEY);
     } catch (err) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: false, message: "Token expired or invalid" }));
+        sendJSON(res, 401, { success: false, message: "Token expired or invalid" });
         return null;
     }
 }
@@ -79,28 +78,25 @@ const server = http.createServer((req, res) => {
         try {
             payload = body ? JSON.parse(body) : {};
         } catch (e) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            return res.end(JSON.stringify({ success: false, message: "Invalid request body" }));
+            return sendJSON(res, 400, { success: false, message: "Invalid request body" });
         }
 
         const { name, email, password, otp, newPassword } = payload;
 
-        res.writeHead(200, { "Content-Type": "application/json" });
-
         // 1. dang ky
         if (req.url === "/api/signup" && req.method === "POST") {
             if (!name || !email || !password) {
-                return res.end(JSON.stringify({ success: false, message: "Name, email and password are required" }));
+                return sendJSON(res, 400, { success: false, message: "Name, email and password are required" });
             }
             const existingUser = await User.findOne({ email });
             if (existingUser) {
                 writeLog(`SIGNUP_FAILED: Email already exists - ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "Email already exists" }));
+                return sendJSON(res, 200, { success: false, message: "Email already exists" });
             }
             const hash = await bcrypt.hash(password, 10);
             await new User({ name, email, password: hash }).save();
             writeLog(`SIGNUP_SUCCESS: ${email} (${name})`);
-            return res.end(JSON.stringify({ success: true, message: "Signup successful" }));
+            return sendJSON(res, 200, { success: true, message: "Signup successful" });
         }
 
         // 2. dang nhap
@@ -111,33 +107,33 @@ const server = http.createServer((req, res) => {
                 if (isMatch) {
                     const token = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: '24h' });
                     writeLog(`LOGIN_SUCCESS: ${email}`);
-                    return res.end(JSON.stringify({ success: true, message: "Login successful", token }));
+                    return sendJSON(res, 200, { success: true, message: "Login successful", token });
                 }
             }
             writeLog(`LOGIN_FAILED: ${email}`);
-            return res.end(JSON.stringify({ success: false, message: "Invalid email or password" }));
+            return sendJSON(res, 200, { success: false, message: "Invalid email or password" });
         }
 
         // 3. quen mat khau
         else if (req.url === "/api/forgot-password" && req.method === "POST") {
             const user = await User.findOne({ email });
-            if (!user) return res.end(JSON.stringify({ success: false, message: "Email not found" }));
+            if (!user) return sendJSON(res, 200, { success: false, message: "Email not found" });
             const code = Math.floor(1000 + Math.random() * 9000).toString();
             user.otp = { code, expire: new Date(Date.now() + 60 * 1000) };
             await user.save();
             writeLog(`OTP_SENT: ${email} - CODE: ${code}`);
-            return res.end(JSON.stringify({ success: true, message: "Your OTP code is: " + code }));
+            return sendJSON(res, 200, { success: true, message: "Your OTP code is: " + code });
         }
 
         // 3.5 gui lai otp
         else if (req.url === "/api/resend-otp" && req.method === "POST") {
             const user = await User.findOne({ email });
-            if (!user) return res.end(JSON.stringify({ success: false, message: "User not found" }));
+            if (!user) return sendJSON(res, 200, { success: false, message: "User not found" });
             const code = Math.floor(1000 + Math.random() * 9000).toString();
             user.otp = { code, expire: new Date(Date.now() + 60 * 1000) };
             await user.save();
             writeLog(`OTP_RESEND: ${email} - NEW_CODE: ${code}`);
-            return res.end(JSON.stringify({ success: true, message: "New OTP sent: " + code }));
+            return sendJSON(res, 200, { success: true, message: "New OTP sent: " + code });
         }
 
         // 4. xac thuc otp
@@ -145,10 +141,10 @@ const server = http.createServer((req, res) => {
             const user = await User.findOne({ email });
             if (!user || !user.otp || user.otp.code !== otp || Date.now() > user.otp.expire) {
                 writeLog(`OTP_VERIFY_FAILED: ${email}`);
-                return res.end(JSON.stringify({ success: false, message: "Invalid or expired OTP" }));
+                return sendJSON(res, 200, { success: false, message: "Invalid or expired OTP" });
             }
             writeLog(`OTP_VERIFY_SUCCESS: ${email}`);
-            return res.end(JSON.stringify({ success: true, message: "OTP verified!" }));
+            return sendJSON(res, 200, { success: true, message: "OTP verified!" });
         }
 
         // 5. doi mat khau
@@ -159,43 +155,42 @@ const server = http.createServer((req, res) => {
                 user.otp = undefined;
                 await user.save();
                 writeLog(`PASSWORD_RESET_SUCCESS: ${email}`);
-                return res.end(JSON.stringify({ success: true, message: "Password changed successfully" }));
-            } else {
-                return res.end(JSON.stringify({ success: false, message: "OTP invalid or expired" }));
+                return sendJSON(res, 200, { success: true, message: "Password changed successfully" });
             }
+            return sendJSON(res, 200, { success: false, message: "OTP invalid or expired" });
         }
 
+        // 6. luu ket qua tran dau
         else if (req.url === "/api/save-match" && req.method === "POST") {
             const decoded = authMiddleware(req, res);
             if (!decoded) return;
 
             const { mode, result } = payload;
-
             if (!["easy", "hard"].includes(mode)) {
-                return res.end(JSON.stringify({ success: false, message: "Invalid mode. Use 'easy' or 'hard'" }));
+                return sendJSON(res, 400, { success: false, message: "Invalid mode. Use 'easy' or 'hard'" });
             }
             if (!["win", "lose"].includes(result)) {
-                return res.end(JSON.stringify({ success: false, message: "Invalid result. Use 'win' or 'lose'" }));
+                return sendJSON(res, 400, { success: false, message: "Invalid result. Use 'win' or 'lose'" });
             }
 
             const points = result === "win" ? (mode === "hard" ? 3 : 1) : 0;
-
             const user = await User.findByIdAndUpdate(
                 decoded.id,
                 { $inc: { score: points } },
                 { new: true }
             );
-            if (!user) return res.end(JSON.stringify({ success: false, message: "User not found" }));
+            if (!user) return sendJSON(res, 404, { success: false, message: "User not found" });
 
             await new Match({ userId: decoded.id, opponent: "AI", mode, result, points }).save();
-
             writeLog(`MATCH_SAVED: ${user.email} vs AI | mode=${mode} | result=${result} | +${points}pts => total: ${user.score}`);
-            return res.end(JSON.stringify({
+            return sendJSON(res, 200, {
                 success: true,
                 message: result === "win" ? `+${points} point${points > 1 ? "s" : ""} added` : "Match saved, no points awarded",
                 score: user.score
-            }));
+            });
         }
+
+        // 7. lay lich su tran dau
         else if (req.url === "/api/match-history" && req.method === "GET") {
             const decoded = authMiddleware(req, res);
             if (!decoded) return;
@@ -203,26 +198,22 @@ const server = http.createServer((req, res) => {
             const matches = await Match.find({ userId: decoded.id })
                 .sort({ playedAt: -1 })
                 .limit(20);
-
-            return res.end(JSON.stringify({ success: true, matches }));
+            return sendJSON(res, 200, { success: true, matches });
         }
+
+        // 8. lay thong tin user + check token
         else if (req.url === "/api/me" && req.method === "GET") {
             const decoded = authMiddleware(req, res);
             if (!decoded) return;
 
             const user = await User.findById(decoded.id).select("name score");
-            if (!user) return res.end(JSON.stringify({ success: false, message: "User not found" }));
+            if (!user) return sendJSON(res, 404, { success: false, message: "User not found" });
 
-            return res.end(JSON.stringify({
-                success: true,
-                name: user.name,
-                score: user.score
-            }));
+            return sendJSON(res, 200, { success: true, name: user.name, score: user.score });
         }
 
         else {
-            res.writeHead(404, { "Content-Type": "application/json" });
-            return res.end(JSON.stringify({ success: false, message: "Not Found" }));
+            return sendJSON(res, 404, { success: false, message: "Not Found" });
         }
     });
 });
