@@ -31,6 +31,7 @@ const matchSchema = new mongoose.Schema({
     playedAt: { type: Date, default: Date.now }
 });
 const Match = mongoose.model('Match', matchSchema);
+
 function sendJSON(res, statusCode, data) {
     res.writeHead(statusCode, { "Content-Type": "application/json" });
     res.end(JSON.stringify(data));
@@ -69,6 +70,43 @@ const server = http.createServer((req, res) => {
     if (req.method === "OPTIONS") {
         res.writeHead(204);
         return res.end();
+    }
+    
+    // 7. lay lich su tran dau
+    if (req.url === "/api/match-history" && req.method === "GET") {
+        const decoded = authMiddleware(req, res);
+        if (!decoded) return;
+
+        Match.find({ userId: decoded.id })
+            .sort({ playedAt: -1 })
+            .limit(20)
+            .then(matches => sendJSON(res, 200, { success: true, matches }))
+            .catch(err => sendJSON(res, 500, { success: false, message: "Internal Error" }));
+        return;
+    }
+
+    // 8. lay thong tin user + check token
+    else if (req.url === "/api/me" && req.method === "GET") {
+        const decoded = authMiddleware(req, res);
+        if (!decoded) return;
+
+        User.findById(decoded.id).select("name score")
+            .then(user => {
+                if (!user) return sendJSON(res, 404, { success: false, message: "User not found" });
+                return sendJSON(res, 200, { success: true, name: user.name, score: user.score });
+            })
+            .catch(err => sendJSON(res, 500, { success: false, message: "Internal Error" }));
+        return;
+    }
+
+    // 9. BỔ SUNG: Lay bang xep hang 10 nguoi cao diem nhat (Khong can token)
+    else if (req.url === "/api/leaderboard" && req.method === "GET") {
+        User.find({}, 'name score')
+            .sort({ score: -1 })
+            .limit(10)
+            .then(topUsers => sendJSON(res, 200, { success: true, leaderboard: topUsers }))
+            .catch(err => sendJSON(res, 500, { success: false, message: "Internal Error" }));
+        return;
     }
 
     let body = "";
@@ -188,28 +226,6 @@ const server = http.createServer((req, res) => {
                 message: result === "win" ? `+${points} point${points > 1 ? "s" : ""} added` : "Match saved, no points awarded",
                 score: user.score
             });
-        }
-
-        // 7. lay lich su tran dau
-        else if (req.url === "/api/match-history" && req.method === "GET") {
-            const decoded = authMiddleware(req, res);
-            if (!decoded) return;
-
-            const matches = await Match.find({ userId: decoded.id })
-                .sort({ playedAt: -1 })
-                .limit(20);
-            return sendJSON(res, 200, { success: true, matches });
-        }
-
-        // 8. lay thong tin user + check token
-        else if (req.url === "/api/me" && req.method === "GET") {
-            const decoded = authMiddleware(req, res);
-            if (!decoded) return;
-
-            const user = await User.findById(decoded.id).select("name score");
-            if (!user) return sendJSON(res, 404, { success: false, message: "User not found" });
-
-            return sendJSON(res, 200, { success: true, name: user.name, score: user.score });
         }
 
         else {
