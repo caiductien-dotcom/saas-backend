@@ -99,16 +99,6 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 9. BỔ SUNG: Lay bang xep hang 10 nguoi cao diem nhat (Khong can token)
-    else if (req.url === "/api/leaderboard" && req.method === "GET") {
-        User.find({}, 'name score')
-            .sort({ score: -1 })
-            .limit(10)
-            .then(topUsers => sendJSON(res, 200, { success: true, leaderboard: topUsers }))
-            .catch(err => sendJSON(res, 500, { success: false, message: "Internal Error" }));
-        return;
-    }
-
     let body = "";
     req.on("data", chunk => { body += chunk.toString(); });
     req.on("end", async () => {
